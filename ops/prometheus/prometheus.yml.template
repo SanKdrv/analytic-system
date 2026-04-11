@@ -1,0 +1,27 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "analytics-backend"
+    static_configs:
+      - targets: ["backend:8000"]
+
+  - job_name: "rag-core"
+    static_configs:
+      - targets: ["${RAG_EXPORTER_HOSTPORT}"]
+        labels:
+          role: "${RAG_SERVER_NAME}"
+
+  - job_name: "ollama-llm"
+    static_configs:
+      - targets: ["${OLLAMA_EXPORTER_HOSTPORT}"]
+        labels:
+          role: "${OLLAMA_SERVER_NAME}"
+
+  - job_name: "embedding-worker"
+    static_configs:
+      - targets: ["${EMBEDDING_EXPORTER_HOSTPORT}"]
+        labels:
+          role: "${EMBEDDING_SERVER_NAME}"
+
