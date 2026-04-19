@@ -12,11 +12,8 @@ const state = reactive({
 })
 
 const form = reactive({
-  temperature: 0.2,
-  top_k: 5,
-  top_p: 0.9,
-  chunk_size: 512,
-  retriever: 'hybrid'
+  prompt_id: 1,
+  prompt: 'Generate a personalized recommendation for the lead.'
 })
 
 const saveMessage = ref('')
@@ -64,11 +61,8 @@ async function saveConfig() {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        temperature: Number(form.temperature),
-        top_k: Number(form.top_k),
-        top_p: Number(form.top_p),
-        chunk_size: Number(form.chunk_size),
-        retriever: form.retriever
+        prompt_id: Number(form.prompt_id),
+        prompt: form.prompt
       })
     })
 
@@ -166,24 +160,12 @@ onUnmounted(() => {
         </div>
         <form class="config-form" @submit.prevent="saveConfig">
           <label>
-            <span>Temperature</span>
-            <input v-model="form.temperature" type="number" min="0" max="2" step="0.1" />
-          </label>
-          <label>
-            <span>Top K</span>
-            <input v-model="form.top_k" type="number" min="1" max="100" />
-          </label>
-          <label>
-            <span>Top P</span>
-            <input v-model="form.top_p" type="number" min="0" max="1" step="0.05" />
-          </label>
-          <label>
-            <span>Chunk size</span>
-            <input v-model="form.chunk_size" type="number" min="64" max="4096" step="64" />
+            <span>Prompt ID</span>
+            <input v-model="form.prompt_id" type="number" min="1" />
           </label>
           <label class="full">
-            <span>Retriever</span>
-            <input v-model="form.retriever" type="text" />
+            <span>Prompt</span>
+            <textarea v-model="form.prompt" rows="4"></textarea>
           </label>
           <button class="button full" :disabled="state.saving">
             {{ state.saving ? 'Saving...' : 'Apply config' }}

@@ -17,7 +17,7 @@ PROBE_SUCCESS = Gauge("rag_probe_success", "Whether the latest synthetic RAG pro
 RAG_CONFIG_INFO = Gauge(
     "rag_runtime_config",
     "Current RAG runtime configuration values exposed as labels",
-    labelnames=("temperature", "top_k", "top_p", "chunk_size", "retriever"),
+    labelnames=("prompt_id", "prompt"),
 )
 
 
@@ -25,18 +25,17 @@ class MonitoringService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.rag_config = RAGConfig(
-            temperature=settings.initial_rag_temperature,
-            top_k=settings.initial_rag_top_k,
-            top_p=settings.initial_rag_top_p,
-            chunk_size=settings.initial_rag_chunk_size,
-            retriever=settings.initial_rag_retriever,
+            prompt_id=settings.initial_rag_prompt_id,
+            prompt=settings.initial_rag_prompt,
         )
         self.records: deque[ProbeRecord] = deque(maxlen=100)
         self._task: asyncio.Task[None] | None = None
         self._client = httpx.AsyncClient(timeout=settings.probe_timeout_seconds)
+        self._api_key: str | None = None
         self._update_rag_config_metric()
 
     async def start(self) -> None:
+        await self._authenticate()
         if self._task is None:
             self._task = asyncio.create_task(self._run_probe_loop())
 
@@ -49,6 +48,22 @@ class MonitoringService:
                 pass
         await self._client.aclose()
 
+    async def _authenticate(self) -> None:
+        if not self.settings.rag_api_secret:
+            raise ValueError("RAG_API_SECRET is required")
+        try:
+            response = await self._client.post(
+                f"{self.settings.rag_backend_url}{self.settings.rag_auth_endpoint}",
+                json={"secret": self.settings.rag_api_secret},
+            )
+            response.raise_for_status()
+            data = response.json()
+            self._api_key = data.get("api-key")
+            if not self._api_key:
+                raise ValueError("No api-key in auth response")
+        except Exception as exc:
+            raise ValueError(f"Failed to authenticate with RAG backend: {exc}") from exc
+
     async def _run_probe_loop(self) -> None:
         while True:
             await self.run_single_probe()
@@ -58,22 +73,52 @@ class MonitoringService:
         PROBE_REQUESTS.inc()
         started_at = time.perf_counter()
         payload = {
-            "question": self.settings.probe_prompt,
-            "debug": True,
-            "synthetic_probe": True,
+            "lead_id": self.settings.probe_lead_id,
+            "type": self.settings.probe_recommendation_type,
         }
         answer = ""
         error = None
         success = False
 
         try:
+            # Generate recommendation
+            headers = {"Authorization": f"Bearer {self._api_key}"}
             response = await self._client.post(
-                f"{self.settings.rag_backend_url}{self.settings.rag_query_endpoint}",
+                f"{self.settings.rag_backend_url}{self.settings.rag_generate_endpoint}",
                 json=payload,
+                headers=headers,
             )
             response.raise_for_status()
             data = response.json()
-            answer = self._extract_answer(data)
+            token = data.get("token")
+            if not token:
+                raise ValueError("No token in generate response")
+
+            # Poll status
+            status_url = f"{self.settings.rag_backend_url}{self.settings.rag_status_endpoint}/{token}"
+            for _ in range(30):  # max 30 polls, ~30 seconds
+                await asyncio.sleep(1)
+                status_response = await self._client.get(status_url, headers=headers)
+                status_response.raise_for_status()
+                status_data = status_response.json()
+                status = status_data.get("status")
+                if status == "completed":
+                    break
+                elif status == "failed":
+                    raise ValueError("Recommendation generation failed")
+            else:
+                raise ValueError("Recommendation generation timed out")
+
+            # Get recommendation
+            get_url = f"{self.settings.rag_backend_url}{self.settings.rag_get_endpoint}/{self.settings.probe_lead_id}"
+            get_response = await self._client.get(get_url, headers=headers)
+            get_response.raise_for_status()
+            get_data = get_response.json()
+            recommendations = get_data.get("recommendations", [])
+            if recommendations:
+                answer = str(recommendations[0].get("data", ""))
+            else:
+                answer = "No recommendations found"
             success = True
         except Exception as exc:
             PROBE_ERRORS.inc()
@@ -106,15 +151,17 @@ class MonitoringService:
         self._update_rag_config_metric()
 
         reloaded = False
-        message = "Configuration stored locally. Reload endpoint was not reachable."
+        message = "Configuration stored locally. Prompt update endpoint was not reachable."
         try:
-            response = await self._client.post(
-                f"{self.settings.rag_backend_url}{self.settings.rag_reload_endpoint}",
-                json=new_config.model_dump(),
+            headers = {"Authorization": f"Bearer {self._api_key}"}
+            response = await self._client.put(
+                f"{self.settings.rag_backend_url}{self.settings.rag_prompt_put_endpoint}",
+                json={"id": new_config.prompt_id, "prompt": new_config.prompt},
+                headers=headers,
             )
             response.raise_for_status()
             reloaded = True
-            message = "Configuration applied and remote RAG backend reload endpoint acknowledged."
+            message = "Prompt updated successfully."
         except Exception:
             pass
 
@@ -172,10 +219,7 @@ class MonitoringService:
     def _update_rag_config_metric(self) -> None:
         RAG_CONFIG_INFO.clear()
         RAG_CONFIG_INFO.labels(
-            temperature=str(self.rag_config.temperature),
-            top_k=str(self.rag_config.top_k),
-            top_p=str(self.rag_config.top_p),
-            chunk_size=str(self.rag_config.chunk_size),
-            retriever=self.rag_config.retriever,
+            prompt_id=str(self.rag_config.prompt_id),
+            prompt=self.rag_config.prompt[:50],  # truncate for label
         ).set(1)
 

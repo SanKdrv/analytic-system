@@ -9,11 +9,8 @@ class ServerTarget(BaseModel):
 
 
 class RAGConfig(BaseModel):
-    temperature: float = Field(ge=0.0, le=2.0)
-    top_k: int = Field(ge=1, le=100)
-    top_p: float = Field(ge=0.0, le=1.0)
-    chunk_size: int = Field(ge=64, le=4096)
-    retriever: str
+    prompt_id: int = Field(ge=1)
+    prompt: str
 
 
 class ProbeRecord(BaseModel):
