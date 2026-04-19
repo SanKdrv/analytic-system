@@ -35,8 +35,12 @@ class MonitoringService:
         self._update_rag_config_metric()
 
     async def start(self) -> None:
-        await self._authenticate()
         if self._task is None:
+            try:
+                await self._authenticate()
+            except Exception:
+                # Keep the API available even if the remote RAG backend is temporarily unreachable.
+                self._api_key = None
             self._task = asyncio.create_task(self._run_probe_loop())
 
     async def stop(self) -> None:
@@ -81,6 +85,9 @@ class MonitoringService:
         success = False
 
         try:
+            if not self._api_key:
+                await self._authenticate()
+
             # Generate recommendation
             headers = {"Authorization": f"Bearer {self._api_key}"}
             response = await self._client.post(
@@ -153,6 +160,8 @@ class MonitoringService:
         reloaded = False
         message = "Configuration stored locally. Prompt update endpoint was not reachable."
         try:
+            if not self._api_key:
+                await self._authenticate()
             headers = {"Authorization": f"Bearer {self._api_key}"}
             response = await self._client.put(
                 f"{self.settings.rag_backend_url}{self.settings.rag_prompt_put_endpoint}",
@@ -222,4 +231,3 @@ class MonitoringService:
             prompt_id=str(self.rag_config.prompt_id),
             prompt=self.rag_config.prompt[:50],  # truncate for label
         ).set(1)
-

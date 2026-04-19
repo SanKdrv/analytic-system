@@ -4,6 +4,8 @@ services:
       context: ./backend
     env_file:
       - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
@@ -25,12 +27,14 @@ services:
     image: prom/prometheus:v2.54.1
     env_file:
       - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./ops/prometheus/prometheus.yml.template:/etc/prometheus/prometheus.yml.template:ro
       - ./ops/prometheus/render-prometheus.sh:/usr/local/bin/render-prometheus.sh:ro
-    command:
+    entrypoint:
       - /bin/sh
       - /usr/local/bin/render-prometheus.sh
 
@@ -51,4 +55,3 @@ services:
       - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
-

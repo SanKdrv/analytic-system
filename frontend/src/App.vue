@@ -1,7 +1,19 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+function resolveApiBaseUrl() {
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL
+  }
+
+  if (typeof window !== 'undefined') {
+    return `${window.location.protocol}//${window.location.hostname}:8001`
+  }
+
+  return 'http://localhost:8001'
+}
+
+const apiBaseUrl = resolveApiBaseUrl()
 
 const state = reactive({
   loading: true,
@@ -213,4 +225,3 @@ onUnmounted(() => {
     </section>
   </main>
 </template>
-
