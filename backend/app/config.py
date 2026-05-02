@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     backend_host: str = Field(default="0.0.0.0", alias="BACKEND_HOST")
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    http_access_log: bool = Field(default=True, alias="HTTP_ACCESS_LOG")
     cors_origins_raw: str = Field(default="http://localhost:5173", alias="CORS_ORIGINS")
 
     rag_backend_url: str = Field(default="http://rag-backend:8081", alias="RAG_BACKEND_URL")
@@ -66,4 +68,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

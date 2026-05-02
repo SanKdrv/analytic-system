@@ -5,7 +5,7 @@ global:
 scrape_configs:
   - job_name: "analytics-backend"
     static_configs:
-      - targets: ["backend:8000"]
+      - targets: ["backend:8001"]
 
   - job_name: "rag-core"
     static_configs:
@@ -24,4 +24,3 @@ scrape_configs:
       - targets: ["${EMBEDDING_EXPORTER_HOSTPORT}"]
         labels:
           role: "${EMBEDDING_SERVER_NAME}"
-
