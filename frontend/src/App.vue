@@ -17,7 +17,9 @@ const state = reactive({
 
 const form = reactive({
   prompt_id: 1,
-  prompt: 'Generate a personalized recommendation for the lead.'
+  prompt: 'Generate a personalized recommendation for the lead.',
+  probe_email: '',
+  probe_type: 'cold'
 })
 
 const saveMessage = ref('')
@@ -85,7 +87,14 @@ async function saveConfig() {
 }
 
 async function runProbe() {
-  await fetch(`${apiBaseUrl}/api/quality/probe`, { method: 'POST' })
+  await fetch(`${apiBaseUrl}/api/quality/probe`, { 
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: form.probe_email,
+      type: form.probe_type
+    })
+  })
   await refresh()
 }
 
@@ -109,16 +118,16 @@ onUnmounted(() => {
         <h1>Analytics console for resource monitoring, live probes, and runtime tuning.</h1>
       </div>
       <div class="hero-actions">
-        <a
-          v-if="state.overview?.grafana_dashboard_url"
-          class="button ghost"
-          :href="state.overview.grafana_dashboard_url"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Open Grafana
-        </a>
-        <button class="button" @click="runProbe">Run probe</button>
+        <div class="probe-form">
+          <input v-model="form.probe_email" type="email" placeholder="Email" />
+          <select v-model="form.probe_type">
+            <option value="cold">Cold</option>
+            <option value="warm">Warm</option>
+            <option value="hot">Hot</option>
+            <option value="after_sale">After Sale</option>
+          </select>
+          <button class="button" @click="runProbe">Run probe</button>
+        </div>
       </div>
     </section>
 

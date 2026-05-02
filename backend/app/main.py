@@ -55,9 +55,29 @@ async def quality_live(limit: int = 20):
     return {"items": service.get_recent_probes(limit=limit)}
 
 
+@app.post("/api/rag/auth")
+async def auth_rag(request: dict):
+    if not settings.rag_api_secret:
+        raise HTTPException(status_code=500, detail="RAG_API_SECRET not set")
+    if request.get("secret") != settings.rag_api_secret:
+        raise HTTPException(status_code=401, detail="Invalid secret")
+    try:
+        if not service._api_key:
+            await service._authenticate()
+        return {"api-key": service._api_key}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Authentication failed: {exc}")
+
+
 @app.post("/api/quality/probe")
-async def trigger_probe():
-    return await service.run_single_probe()
+async def trigger_probe(request: dict):
+    email = request.get("email")
+    probe_type = request.get("type")
+    if not email or not probe_type:
+        raise HTTPException(status_code=400, detail="email and type required")
+    if probe_type not in ["cold", "hot", "warm", "after_sale"]:
+        raise HTTPException(status_code=400, detail="Invalid type")
+    return await service.run_single_probe(email=email, probe_type=probe_type)
 
 
 @app.get("/api/servers")

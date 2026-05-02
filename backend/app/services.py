@@ -9,6 +9,14 @@ from prometheus_client import Counter, Gauge, Histogram
 from .config import Settings
 from .models import ProbeRecord, RAGConfig, RAGConfigUpdateResult, ServerTarget, SystemOverview
 
+# Mapping prompt_id to lead_type for RAG backend API
+PROMPT_ID_TO_LEAD_TYPE = {
+    1: "cold",
+    2: "warm",
+    3: "hot",
+    4: "after_sale",
+}
+
 PROBE_REQUESTS = Counter("rag_probe_requests_total", "Total number of synthetic RAG probes sent")
 PROBE_ERRORS = Counter("rag_probe_errors_total", "Total number of failed synthetic RAG probes")
 PROBE_LATENCY = Histogram("rag_probe_latency_seconds", "Synthetic RAG probe latency in seconds")
@@ -73,12 +81,36 @@ class MonitoringService:
             await self.run_single_probe()
             await asyncio.sleep(self.settings.probe_interval_seconds)
 
-    async def run_single_probe(self) -> ProbeRecord:
+    async def run_single_probe(self, email: str | None = None, probe_type: str | None = None) -> ProbeRecord:
         PROBE_REQUESTS.inc()
         started_at = time.perf_counter()
+        
+        # Use provided email/type or fallback to settings
+        lead_id = self.settings.probe_lead_id
+        recommendation_type = probe_type or self.settings.probe_recommendation_type
+        
+        if email:
+            # Check contact uniqueness in Mautic
+            try:
+                if not self._api_key:
+                    await self._authenticate()
+                headers = {"Authorization": f"Bearer {self._api_key}"}
+                check_response = await self._client.get(
+                    f"{self.settings.rag_backend_url}/mautic/contact/check",
+                    params={"email": email},
+                    headers=headers,
+                )
+                check_response.raise_for_status()
+                check_data = check_response.json()
+                if not check_data.get("unique"):
+                    raise ValueError("Email not unique in Mautic")
+                lead_id = str(check_data["contact_id"])
+            except Exception as exc:
+                raise ValueError(f"Failed to check contact: {exc}")
+        
         payload = {
-            "lead_id": self.settings.probe_lead_id,
-            "type": self.settings.probe_recommendation_type,
+            "lead_id": lead_id,
+            "type": recommendation_type,
         }
         answer = ""
         error = None
@@ -101,10 +133,15 @@ class MonitoringService:
             if not token:
                 raise ValueError("No token in generate response")
 
-            # Poll status
+            # Poll status with timeout
+            import time as time_module
+            start_poll_time = time_module.time()
+            poll_timeout = 300  # 5 minutes max
+            poll_interval = 5   # poll every 5 seconds
             status_url = f"{self.settings.rag_backend_url}{self.settings.rag_status_endpoint}/{token}"
-            for _ in range(30):  # max 30 polls, ~30 seconds
-                await asyncio.sleep(1)
+            
+            while time_module.time() - start_poll_time < poll_timeout:
+                await asyncio.sleep(poll_interval)
                 status_response = await self._client.get(status_url, headers=headers)
                 status_response.raise_for_status()
                 status_data = status_response.json()
@@ -117,7 +154,7 @@ class MonitoringService:
                 raise ValueError("Recommendation generation timed out")
 
             # Get recommendation
-            get_url = f"{self.settings.rag_backend_url}{self.settings.rag_get_endpoint}/{self.settings.probe_lead_id}"
+            get_url = f"{self.settings.rag_backend_url}/recommendations/{lead_id}"
             get_response = await self._client.get(get_url, headers=headers)
             get_response.raise_for_status()
             get_data = get_response.json()
@@ -163,9 +200,10 @@ class MonitoringService:
             if not self._api_key:
                 await self._authenticate()
             headers = {"Authorization": f"Bearer {self._api_key}"}
+            lead_type = PROMPT_ID_TO_LEAD_TYPE.get(new_config.prompt_id, "cold")
             response = await self._client.put(
                 f"{self.settings.rag_backend_url}{self.settings.rag_prompt_put_endpoint}",
-                json={"id": new_config.prompt_id, "prompt": new_config.prompt},
+                json={"lead_type": lead_type, "prompt": new_config.prompt},
                 headers=headers,
             )
             response.raise_for_status()
