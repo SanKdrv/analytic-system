@@ -2,15 +2,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 
 function resolveApiBaseUrl() {
-  if (import.meta.env.VITE_API_BASE_URL) {
-    return import.meta.env.VITE_API_BASE_URL
-  }
-
-  if (typeof window !== 'undefined') {
-    return `${window.location.protocol}//${window.location.hostname}:8001`
-  }
-
-  return 'http://localhost:8001'
+  return import.meta.env.VITE_API_BASE_URL || ''
 }
 
 const apiBaseUrl = resolveApiBaseUrl()
