@@ -2,6 +2,7 @@ import asyncio
 import time
 from collections import deque
 from datetime import UTC, datetime
+import logging
 
 import httpx
 from prometheus_client import Counter, Gauge, Histogram
@@ -64,13 +65,16 @@ class MonitoringService:
         if not self.settings.rag_api_secret:
             raise ValueError("RAG_API_SECRET is required")
         try:
+            logging.info("Authenticating with RAG backend...")
             response = await self._client.post(
                 f"{self.settings.rag_backend_url}{self.settings.rag_auth_endpoint}",
                 json={"secret": self.settings.rag_api_secret},
             )
             response.raise_for_status()
             data = response.json()
+            logging.info(f"Authentication response: {data}")
             self._api_key = data.get("api-key")
+            logging.info("Authentication successful, obtained API key.")
             if not self._api_key:
                 raise ValueError("No api-key in auth response")
         except Exception as exc:
