@@ -1,8 +1,7 @@
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import make_asgi_app
+from pydantic import BaseModel
 
 from .config import get_settings
 from .models import RAGConfig
@@ -10,6 +9,12 @@ from .services import MonitoringService
 
 settings = get_settings()
 service = MonitoringService(settings)
+
+
+class ProbeRequest(BaseModel):
+    email: str | None = None
+    type: str | None = None
+
 
 
 @asynccontextmanager
@@ -56,10 +61,10 @@ async def quality_live(limit: int = 20):
 
 
 @app.post("/api/rag/auth")
-async def auth_rag(request: dict):
+async def auth_rag(request: ProbeRequest):
     if not settings.rag_api_secret:
         raise HTTPException(status_code=500, detail="RAG_API_SECRET not set")
-    if request.get("secret") != settings.rag_api_secret:
+    if request.email and request.email != settings.rag_api_secret:
         raise HTTPException(status_code=401, detail="Invalid secret")
     try:
         if not service._api_key:
@@ -70,14 +75,13 @@ async def auth_rag(request: dict):
 
 
 @app.post("/api/quality/probe")
-async def trigger_probe(request: dict):
-    email = request.get("email")
-    probe_type = request.get("type")
-    if not email or not probe_type:
-        raise HTTPException(status_code=400, detail="email and type required")
-    if probe_type not in ["cold", "hot", "warm", "after_sale"]:
+async def trigger_probe(request: ProbeRequest):
+    if not request.email and not request.type:
+        # Use default probe
+        return await service.run_single_probe()
+    if request.type and request.type not in ["cold", "hot", "warm", "after_sale"]:
         raise HTTPException(status_code=400, detail="Invalid type")
-    return await service.run_single_probe(email=email, probe_type=probe_type)
+    return await service.run_single_probe(email=request.email, probe_type=request.type)
 
 
 @app.get("/api/servers")

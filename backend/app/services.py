@@ -89,6 +89,7 @@ class MonitoringService:
         lead_id = self.settings.probe_lead_id
         recommendation_type = probe_type or self.settings.probe_recommendation_type
         
+        error = None
         if email:
             # Check contact uniqueness in Mautic
             try:
@@ -102,72 +103,77 @@ class MonitoringService:
                 )
                 check_response.raise_for_status()
                 check_data = check_response.json()
-                if not check_data.get("unique"):
-                    raise ValueError("Email not unique in Mautic")
-                lead_id = str(check_data["contact_id"])
+                if check_data.get("unique"):
+                    lead_id = str(check_data["contact_id"])
+                else:
+                    error = "Email not unique in Mautic"
             except Exception as exc:
-                raise ValueError(f"Failed to check contact: {exc}")
+                error = f"Failed to check contact: {exc}"
         
         payload = {
             "lead_id": lead_id,
             "type": recommendation_type,
         }
         answer = ""
-        error = None
         success = False
 
-        try:
-            if not self._api_key:
-                await self._authenticate()
-
-            # Generate recommendation
-            headers = {"Authorization": f"Bearer {self._api_key}"}
-            response = await self._client.post(
-                f"{self.settings.rag_backend_url}{self.settings.rag_generate_endpoint}",
-                json=payload,
-                headers=headers,
-            )
-            response.raise_for_status()
-            data = response.json()
-            token = data.get("token")
-            if not token:
-                raise ValueError("No token in generate response")
-
-            # Poll status with timeout
-            import time as time_module
-            start_poll_time = time_module.time()
-            poll_timeout = 300  # 5 minutes max
-            poll_interval = 5   # poll every 5 seconds
-            status_url = f"{self.settings.rag_backend_url}{self.settings.rag_status_endpoint}/{token}"
-            
-            while time_module.time() - start_poll_time < poll_timeout:
-                await asyncio.sleep(poll_interval)
-                status_response = await self._client.get(status_url, headers=headers)
-                status_response.raise_for_status()
-                status_data = status_response.json()
-                status = status_data.get("status")
-                if status == "completed":
-                    break
-                elif status == "failed":
-                    raise ValueError("Recommendation generation failed")
-            else:
-                raise ValueError("Recommendation generation timed out")
-
-            # Get recommendation
-            get_url = f"{self.settings.rag_backend_url}/recommendations/{lead_id}"
-            get_response = await self._client.get(get_url, headers=headers)
-            get_response.raise_for_status()
-            get_data = get_response.json()
-            recommendations = get_data.get("recommendations", [])
-            if recommendations:
-                answer = str(recommendations[0].get("data", ""))
-            else:
-                answer = "No recommendations found"
-            success = True
-        except Exception as exc:
+        if error:
+            # If contact check failed, skip probe and return error record
             PROBE_ERRORS.inc()
-            error = str(exc)
-            answer = "Stub answer: monitoring pipeline unavailable, using fallback evaluation."
+            answer = f"Error: {error}"
+        else:
+            try:
+                if not self._api_key:
+                    await self._authenticate()
+
+                # Generate recommendation
+                headers = {"Authorization": f"Bearer {self._api_key}"}
+                response = await self._client.post(
+                    f"{self.settings.rag_backend_url}{self.settings.rag_generate_endpoint}",
+                    json=payload,
+                    headers=headers,
+                )
+                response.raise_for_status()
+                data = response.json()
+                token = data.get("token")
+                if not token:
+                    raise ValueError("No token in generate response")
+
+                # Poll status with timeout
+                import time as time_module
+                start_poll_time = time_module.time()
+                poll_timeout = 300  # 5 minutes max
+                poll_interval = 5   # poll every 5 seconds
+                status_url = f"{self.settings.rag_backend_url}{self.settings.rag_status_endpoint}/{token}"
+                
+                while time_module.time() - start_poll_time < poll_timeout:
+                    await asyncio.sleep(poll_interval)
+                    status_response = await self._client.get(status_url, headers=headers)
+                    status_response.raise_for_status()
+                    status_data = status_response.json()
+                    status = status_data.get("status")
+                    if status == "completed":
+                        break
+                    elif status == "failed":
+                        raise ValueError("Recommendation generation failed")
+                else:
+                    raise ValueError("Recommendation generation timed out")
+
+                # Get recommendation
+                get_url = f"{self.settings.rag_backend_url}/recommendations/{lead_id}"
+                get_response = await self._client.get(get_url, headers=headers)
+                get_response.raise_for_status()
+                get_data = get_response.json()
+                recommendations = get_data.get("recommendations", [])
+                if recommendations:
+                    answer = str(recommendations[0].get("data", ""))
+                else:
+                    answer = "No recommendations found"
+                success = True
+            except Exception as exc:
+                PROBE_ERRORS.inc()
+                error = str(exc)
+                answer = "Stub answer: monitoring pipeline unavailable, using fallback evaluation."
 
         latency_seconds = max(time.perf_counter() - started_at, 0.001)
         latency_ms = round(latency_seconds * 1000, 2)
