@@ -46,16 +46,19 @@ class MonitoringService:
         self._update_rag_config_metric()
 
     async def start(self) -> None:
-        if self._task is None:
-            logger.info("event=monitoring.start")
-            try:
-                await self._authenticate()
-            except Exception as exc:
-                # Keep the API available even if the remote RAG backend is temporarily unreachable.
-                self._api_key = None
-                logger.warning("event=rag.auth.startup_failed error=%s", exc)
+        logger.info("event=monitoring.start probe_loop_enabled=%s", self.settings.probe_loop_enabled)
+        try:
+            await self._authenticate()
+        except Exception as exc:
+            # Keep the API available even if the remote RAG backend is temporarily unreachable.
+            self._api_key = None
+            logger.warning("event=rag.auth.startup_failed error=%s", exc)
+
+        if self.settings.probe_loop_enabled and self._task is None:
             self._task = asyncio.create_task(self._run_probe_loop())
             logger.info("event=monitoring.probe_loop.created")
+        elif not self.settings.probe_loop_enabled:
+            logger.info("event=monitoring.probe_loop.disabled")
 
     async def stop(self) -> None:
         if self._task is not None:
@@ -127,7 +130,7 @@ class MonitoringService:
         
         # Use provided email/type or fallback to settings
         lead_id = self.settings.probe_lead_id
-        recommendation_type = probe_type or self.settings.probe_recommendation_type
+        recommendation_type = probe_type or self.settings.probe_recommendation_type or "cold"
         
         error = None
         if email:
@@ -190,6 +193,13 @@ class MonitoringService:
                     json=payload,
                     headers=headers,
                 )
+                if response.is_error:
+                    logger.warning(
+                        "event=rag.generate.http_error status_code=%s response_body=%s payload=%s",
+                        response.status_code,
+                        response.text[:1000],
+                        payload,
+                    )
                 response.raise_for_status()
                 data = response.json()
                 token = data.get("token")

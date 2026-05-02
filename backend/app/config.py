@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     embedding_server_name: str = Field(default="embedding-worker", alias="EMBEDDING_SERVER_NAME")
     embedding_exporter_target: str = Field(default="http://embedding-host:9100", alias="EMBEDDING_EXPORTER_TARGET")
 
+    probe_loop_enabled: bool = Field(default=False, alias="PROBE_LOOP_ENABLED")
     probe_interval_seconds: int = Field(default=15, alias="PROBE_INTERVAL_SECONDS")
     probe_timeout_seconds: int = Field(default=10, alias="PROBE_TIMEOUT_SECONDS")
     probe_prompt: str = Field(
@@ -36,7 +37,7 @@ class Settings(BaseSettings):
     )
     probe_expected_keywords: str = Field(default="recommendation,lead,system", alias="PROBE_EXPECTED_KEYWORDS")
     probe_lead_id: str = Field(default="test-lead-123", alias="PROBE_LEAD_ID")
-    probe_recommendation_type: str = Field(default="", alias="PROBE_RECOMMENDATION_TYPE")
+    probe_recommendation_type: str = Field(default="cold", alias="PROBE_RECOMMENDATION_TYPE")
 
     initial_rag_prompt_id: int = Field(default=1, alias="INITIAL_RAG_PROMPT_ID")
     initial_rag_prompt: str = Field(default="Generate a personalized recommendation for the lead.", alias="INITIAL_RAG_PROMPT")
